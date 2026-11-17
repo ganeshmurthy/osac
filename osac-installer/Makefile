@@ -326,12 +326,12 @@ endif
 export KUBECONFIG := $(or $(KUBECONFIG),$(KIND_KUBECONFIG))
 
 # These local image references match the dev-full chart values.
-KIND_FULFILLMENT_IMAGE := ghcr.io/osac-project/fulfillment-service:latest
+KIND_FULFILLMENT_IMAGE := quay.io/ganeshmurthy/fulfillment-service:latest
 KIND_OPERATOR_IMAGE := ghcr.io/osac-project/osac-operator:latest
 KIND_METERING_IMAGE := ghcr.io/osac-project/metering-service:latest
 KIND_AAP_IMAGE := ghcr.io/osac-project/osac-aap:latest
-# UI has no component Makefile, so the installer keeps its local image reference.
-KIND_UI_IMAGE := ghcr.io/osac-project/osac-ui:latest
+# Keep the dev-full image reference aligned with osac-ui/Makefile and its values.
+KIND_UI_IMAGE := quay.io/ganeshmurthy/osac-ui:latest
 KIND_LOAD_IMAGE_SCRIPT ?= $(abspath scripts/dev-full/kind-load-image.sh)
 define kind-load-local-image
 	$(KIND_RUNTIME_ENV) NS="$(NS)" \

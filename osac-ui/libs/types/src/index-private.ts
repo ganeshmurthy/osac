@@ -88,3 +88,6 @@ export * from './osac/private/v1/tenant_type_pb.js'
 export * from './osac/private/v1/tenants_service_pb.js'
 
 export * from './osac/private/v1/break_glass_credentials_type_pb.js'
+
+export * from './osac/private/v1/model_type_pb.js'
+export * from './osac/private/v1/models_service_pb.js'

@@ -98,6 +98,25 @@ describe('navRowsForRole', () => {
     expect(findSection('admin', 'nav-tenant-services')).toBeUndefined();
   });
 
+  it('shows Models only to the Cloud Provider Admin when MaaS is enabled', () => {
+    const adminRows = navRowsForRole('admin', tIdentity, [ServiceTier.MAAS]);
+    expect(adminRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'models', path: '/admin/maas/models' }),
+      ]),
+    );
+
+    for (const role of ['tenant-user', 'tenant-admin', 'tenant-idp-manager'] as UserRole[]) {
+      expect(navRowsForRole(role, tIdentity, [ServiceTier.MAAS])).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: 'models' })]),
+      );
+    }
+
+    expect(
+      navRowsForRole('admin', tIdentity, []).some((row) => isNavLink(row) && row.id === 'models'),
+    ).toBe(false);
+  });
+
   it('includes Catalog and Projects for tenant-admin and tenant roles but not IDP manager', () => {
     for (const role of [...nonIdpRoles] as UserRole[]) {
       expect(findLink(role, 'catalog')).toBeDefined();

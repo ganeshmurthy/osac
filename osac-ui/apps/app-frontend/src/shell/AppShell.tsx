@@ -32,6 +32,7 @@ import { VolumeRoutes } from '@osac/ui-components/pages/tenant/VolumeRoutes';
 import { BareMetalInstanceTypeRoutes } from './BareMetalInstanceTypeRoutes';
 import { DiskImageRoutes } from './DiskImageRoutes';
 import { InstanceTypeRoutes } from './InstanceTypeRoutes';
+import { ModelRoutes } from './ModelRoutes';
 import { ServiceRoute } from './ServiceRoute';
 import { ShellMasthead } from './ShellMasthead';
 import { defaultRouteForRole } from './shellRoutes';
@@ -132,6 +133,18 @@ export const AppShell = ({ logout }: { logout: () => Promise<void> }) => {
             </ShellRoute>
           }
         />
+        {role === 'admin' && (
+          <Route
+            path="/admin/maas/models/*"
+            element={
+              <ShellRoute>
+                <ServiceRoute service={ServiceTier.MAAS}>
+                  <ModelRoutes />
+                </ServiceRoute>
+              </ShellRoute>
+            }
+          />
+        )}
         <Route
           path="/admin/tenants/*"
           element={

@@ -1,5 +1,5 @@
 # Image URL to use for building/pushing image targets
-IMG ?= ghcr.io/osac-project/osac-ui:latest
+IMG ?= quay.io/ganeshmurthy/osac-ui:latest
 
 CONTAINER_TOOL ?= podman
 CONTAINERFILE ?= Containerfile

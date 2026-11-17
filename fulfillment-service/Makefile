@@ -1,5 +1,5 @@
 # Image URL to use for building/pushing image targets
-IMG ?= ghcr.io/osac-project/fulfillment-service:latest
+IMG ?= quay.io/ganeshmurthy/fulfillment-service:latest
 # Name of Containerfile
 CONTAINERFILE ?= Containerfile
 # CONTAINER_TOOL defines the container tool to be used for building images.

@@ -1,0 +1,152 @@
+//
+// Copyright (c) 2026 Red Hat, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+
+syntax = "proto3";
+
+package osac.public.v1;
+
+import "buf/validate/validate.proto";
+import "google/api/field_behavior.proto";
+import "osac/public/v1/metadata_type.proto";
+
+// Model is a local MaaS deployment managed by a Cloud Provider Admin.
+// Its immutable name is the model identifier tenants use for inference.
+message Model {
+  option (buf.validate.message).cel = {
+    id: "model.id_matches_metadata_name"
+    message: "id must match metadata.name"
+    expression: "this.id == this.metadata.name"
+  };
+
+  string id = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 63
+    pattern: "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+  }];
+  Metadata metadata = 2 [(buf.validate.field).required = true];
+  ModelSpec spec = 3 [(buf.validate.field).required = true];
+  ModelStatus status = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Desired settings for a model deployment. Source, serving profile, and
+// inference name are immutable. Placements may be removed only while at least
+// one deployment remains.
+message ModelSpec {
+  string source_uri = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 2048
+  }];
+  string serving_profile = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 253
+    pattern: "^\\S+$"
+  }];
+  // Runtime selected by the serving profile. This field is read-only.
+  string runtime = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Static replica count. Mutually exclusive with autoscaling.
+  optional int32 replicas = 4 [(buf.validate.field).int32 = {gte: 0, lte: 99}];
+  // Per-replica CPU, memory, and accelerator requests and limits.
+  ModelComputeResources compute_resources = 5;
+  // Inference clusters selected for this model.
+  ModelPlacement placement = 6 [(buf.validate.field).required = true];
+  // Autoscaling settings. Mutually exclusive with replicas.
+  ModelScaling scaling = 7;
+}
+
+message ModelComputeResources {
+  map<string, string> requests = 1 [(buf.validate.field).map = {
+    keys: {string: {min_len: 1}}
+    values: {string: {min_len: 1}}
+  }];
+  map<string, string> limits = 2 [(buf.validate.field).map = {
+    keys: {string: {min_len: 1}}
+    values: {string: {min_len: 1}}
+  }];
+}
+
+message ModelScaling {
+  int32 min_replicas = 1 [(buf.validate.field).int32.gte = 0];
+  int32 max_replicas = 2 [(buf.validate.field).int32 = {gte: 1, lte: 99}];
+  bool keda = 3;
+  repeated ModelScalingTrigger triggers = 4;
+}
+
+message ModelScalingTrigger {
+  string type = 1 [(buf.validate.field).string.min_len = 1];
+  map<string, string> metadata = 2;
+}
+
+message ModelPlacement {
+  repeated string clusters = 1 [(buf.validate.field).repeated = {
+    min_items: 1
+    unique: true
+    items: {string: {min_len: 1, max_len: 63}}
+  }];
+}
+
+enum ModelPhase {
+  MODEL_PHASE_UNSPECIFIED = 0;
+  MODEL_PHASE_PENDING = 1;
+  MODEL_PHASE_READY = 2;
+  MODEL_PHASE_PARTIAL = 3;
+  MODEL_PHASE_FAILED = 4;
+}
+
+enum ModelDeploymentPhase {
+  MODEL_DEPLOYMENT_PHASE_UNSPECIFIED = 0;
+  MODEL_DEPLOYMENT_PHASE_PENDING = 1;
+  MODEL_DEPLOYMENT_PHASE_READY = 2;
+  MODEL_DEPLOYMENT_PHASE_FAILED = 3;
+  MODEL_DEPLOYMENT_PHASE_STOPPED = 4;
+}
+
+enum ModelMaasPhase {
+  MODEL_MAAS_PHASE_UNSPECIFIED = 0;
+  MODEL_MAAS_PHASE_PENDING = 1;
+  MODEL_MAAS_PHASE_READY = 2;
+  MODEL_MAAS_PHASE_FAILED = 3;
+  MODEL_MAAS_PHASE_UNAVAILABLE = 4;
+  MODEL_MAAS_PHASE_AWAITING_SUBSCRIPTION = 5;
+}
+
+// Observed inference deployment and MaaS publication state.
+message ModelStatus {
+  ModelPhase phase = 1 [(buf.validate.field).enum.defined_only = true];
+  string reason = 2;
+  string message = 3;
+  repeated ModelDeploymentStatus deployments = 4;
+  repeated ModelIngressStatus ingress = 5;
+}
+
+message ModelDeploymentStatus {
+  string cluster = 1;
+  ModelDeploymentPhase phase = 2 [(buf.validate.field).enum.defined_only = true];
+  string reason = 3;
+  string message = 4;
+}
+
+message ModelIngressStatus {
+  string cluster = 1;
+  ModelMaasPhase phase = 2 [(buf.validate.field).enum.defined_only = true];
+  string reason = 3;
+  string message = 4;
+}
+
+message ModelPlacementCluster {
+  string name = 1;
+  // Optional location label for display. Location does not affect placement.
+  string location = 2;
+}

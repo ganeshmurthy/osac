@@ -13,6 +13,7 @@ operator:
     # configure-awx.sh creates OSAC resources in AWX organization ID 1 (Default).
     organization: "Default"
   image:
+    repository: quay.io/ganeshmurthy/osac-operator
     pullPolicy: IfNotPresent
   controllers:
     storage: true
@@ -20,6 +21,11 @@ operator:
 
 metering:
   image:
+    pullPolicy: IfNotPresent
+
+ui:
+  images:
+    ui: quay.io/ganeshmurthy/osac-ui:latest
     pullPolicy: IfNotPresent
 
 # Reuse the local storage registration hook so tenant onboarding provisions a
@@ -44,6 +50,7 @@ service:
   internalHostname: fulfillment-internal-api.osac.localhost
   images:
     service:
+      repository: quay.io/ganeshmurthy/fulfillment-service
       pullPolicy: IfNotPresent
     envoy:
       pullPolicy: IfNotPresent

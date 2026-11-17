@@ -49,6 +49,13 @@ const getIdpManagerNav = (t: TFunction): NavRow[] => [...getIdpLinks(t), getSecr
 const getAdminNav = (t: TFunction): NavRow[] => [
   getCatalogNav(t),
   {
+    kind: 'link',
+    id: 'models',
+    label: t('Models'),
+    path: '/admin/maas/models',
+    service: ServiceTier.MAAS,
+  },
+  {
     kind: 'section',
     id: 'nav-administration',
     label: t('Administration'),

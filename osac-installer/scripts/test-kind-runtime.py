@@ -1176,7 +1176,7 @@ exec /usr/bin/mktemp "$@"
         metering_load = result.stdout.find(
             'kind-load-image.sh" "ghcr.io/osac-project/metering-service:latest"'
         )
-        ui_load = result.stdout.find('kind-load-image.sh" "ghcr.io/osac-project/osac-ui:latest"')
+        ui_load = result.stdout.find('kind-load-image.sh" "quay.io/ganeshmurthy/osac-ui:latest"')
         self.assertGreaterEqual(metering_load, 0, result.stdout)
         self.assertGreater(ui_load, metering_load, result.stdout)
 
@@ -1195,11 +1195,11 @@ exec /usr/bin/mktemp "$@"
 
         output = result.stdout
         builds = [
-            "image-build IMG=ghcr.io/osac-project/fulfillment-service:latest",
+            "image-build IMG=quay.io/ganeshmurthy/fulfillment-service:latest",
             "image-build IMG=ghcr.io/osac-project/osac-operator:latest",
             "image-build IMG=ghcr.io/osac-project/metering-service:latest",
             "execution-environment-build IMG=ghcr.io/osac-project/osac-aap:latest",
-            "build -f ../osac-ui/Containerfile -t ghcr.io/osac-project/osac-ui:latest ..",
+            "build -f ../osac-ui/Containerfile -t quay.io/ganeshmurthy/osac-ui:latest ..",
         ]
         build_positions = [output.find(command) for command in builds]
         self.assertTrue(all(position >= 0 for position in build_positions), output)
@@ -1232,11 +1232,11 @@ exec /usr/bin/mktemp "$@"
             output,
         )
         self.assertIn(
-            'kind-load-image.sh" "ghcr.io/osac-project/osac-ui:latest"',
+            'kind-load-image.sh" "quay.io/ganeshmurthy/osac-ui:latest"',
             output,
         )
         for image in (
-            "kind-load-image IMG=ghcr.io/osac-project/fulfillment-service:latest",
+            "kind-load-image IMG=quay.io/ganeshmurthy/fulfillment-service:latest",
             "kind-load-image IMG=ghcr.io/osac-project/osac-operator:latest",
             "kind-load-image IMG=ghcr.io/osac-project/osac-aap:latest",
         ):

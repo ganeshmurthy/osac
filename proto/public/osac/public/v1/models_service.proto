@@ -1,0 +1,89 @@
+//
+// Copyright (c) 2026 Red Hat, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+
+syntax = "proto3";
+
+package osac.public.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/field_mask.proto";
+import "osac/public/v1/model_type.proto";
+
+message ModelsListRequest {
+  optional int32 offset = 1;
+  optional int32 limit = 2;
+}
+
+message ModelsListResponse {
+  int32 size = 1;
+  int32 total = 2;
+  repeated Model items = 3;
+}
+
+message ModelsGetRequest { string id = 1; }
+message ModelsGetResponse { Model object = 1; }
+message ModelsCreateRequest { Model object = 1; }
+message ModelsCreateResponse { Model object = 1; }
+
+message ModelsUpdateRequest {
+  Model object = 1;
+  // Supported paths: metadata.labels, metadata.annotations, spec.replicas,
+  // spec.compute_resources, spec.placement, and spec.scaling. Source, profile,
+  // runtime, and model identity cannot be changed after creation.
+  google.protobuf.FieldMask update_mask = 2;
+  bool lock = 3;
+}
+
+message ModelsUpdateResponse { Model object = 1; }
+message ModelsDeleteRequest { string id = 1; }
+message ModelsDeleteResponse {}
+
+message ModelsListPlacementClustersRequest {}
+message ModelsListPlacementClustersResponse {
+  repeated ModelPlacementCluster clusters = 1;
+}
+
+service Models {
+  rpc List(ModelsListRequest) returns (ModelsListResponse) {
+    option (google.api.http) = {get: "/api/fulfillment/v1/models"};
+  }
+  rpc Get(ModelsGetRequest) returns (ModelsGetResponse) {
+    option (google.api.http) = {
+      get: "/api/fulfillment/v1/models/{id}"
+      response_body: "object"
+    };
+  }
+  rpc Create(ModelsCreateRequest) returns (ModelsCreateResponse) {
+    option (google.api.http) = {
+      post: "/api/fulfillment/v1/models"
+      body: "object"
+      response_body: "object"
+    };
+  }
+  rpc Update(ModelsUpdateRequest) returns (ModelsUpdateResponse) {
+    option (google.api.http) = {
+      patch: "/api/fulfillment/v1/models/{object.id}"
+      body: "object"
+      response_body: "object"
+    };
+  }
+  rpc Delete(ModelsDeleteRequest) returns (ModelsDeleteResponse) {
+    option (google.api.http) = {delete: "/api/fulfillment/v1/models/{id}"};
+  }
+  rpc ListPlacementClusters(ModelsListPlacementClustersRequest) returns (ModelsListPlacementClustersResponse) {
+    option (google.api.http) = {get: "/api/fulfillment/v1/models:listPlacementClusters"};
+  }
+}

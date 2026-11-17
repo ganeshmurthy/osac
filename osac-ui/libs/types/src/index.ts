@@ -95,3 +95,7 @@ export * from './osac/public/v1/baremetal_instance_common_type_pb.js';
 
 export * from './osac/public/v1/self_subject_access_review_type_pb.js';
 export * from './osac/public/v1/self_subject_access_review_service_pb.js';
+
+export * from './osac/public/v1/model_type_pb.js';
+export * from './osac/public/v1/models_service_pb.js';
+export * from './google/protobuf/field_mask_pb.js';
