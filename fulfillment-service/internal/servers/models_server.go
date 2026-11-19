@@ -99,7 +99,8 @@ func (b *ModelsServerBuilder) Build() (*ModelsServer, error) {
 func (s *ModelsServer) List(ctx context.Context, request *publicv1.ModelsListRequest) (*publicv1.ModelsListResponse, error) {
 	hubID, err := s.aiGridHubID(ctx)
 	if err != nil {
-		return nil, err
+		s.logger.WarnContext(ctx, "cannot resolve AI Grid Hub for model status; returning Git catalog", "error", err)
+		hubID = ""
 	}
 	var backendResponse backendModelsListResponse
 	backendRequest := backendModelsListRequest{}
@@ -142,8 +143,10 @@ func (s *ModelsServer) Create(ctx context.Context, request *publicv1.ModelsCreat
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validateEligibleClusters(ctx, hubID, object.GetSpec().GetPlacement().GetClusters()); err != nil {
-		return nil, err
+	if clusters := object.GetSpec().GetPlacement().GetClusters(); len(clusters) > 0 {
+		if err := s.validateEligibleClusters(ctx, hubID, clusters); err != nil {
+			return nil, err
+		}
 	}
 	backendRequest := backendModelRequest{Object: backendModelFromOSAC(object)}
 	var response backendModelResponse
@@ -180,12 +183,15 @@ func (s *ModelsServer) Update(ctx context.Context, request *publicv1.ModelsUpdat
 	if containsModelPath(paths, "spec.placement") {
 		oldClusters := current.toOSAC().GetSpec().GetPlacement().GetClusters()
 		newClusters := merged.GetSpec().GetPlacement().GetClusters()
-		if len(newClusters) == 0 {
-			return nil, status.Error(codes.FailedPrecondition, "at least one model deployment must remain; delete the model to remove every deployment")
-		}
+		var addedClusters []string
 		for _, cluster := range newClusters {
 			if !slices.Contains(oldClusters, cluster) {
-				return nil, status.Errorf(codes.FailedPrecondition, "adding placement cluster %q after model creation is not supported", cluster)
+				addedClusters = append(addedClusters, cluster)
+			}
+		}
+		if len(addedClusters) > 0 {
+			if err := s.validateEligibleClusters(ctx, hubID, addedClusters); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -289,9 +295,6 @@ func validateOSACModel(model *publicv1.Model) error {
 	}
 	if model.GetSpec().GetServingProfile() == "" {
 		return status.Error(codes.InvalidArgument, "spec.serving_profile is required")
-	}
-	if len(model.GetSpec().GetPlacement().GetClusters()) == 0 {
-		return status.Error(codes.InvalidArgument, "spec.placement.clusters must contain at least one cluster")
 	}
 	if model.GetSpec().HasReplicas() && model.GetSpec().GetScaling() != nil {
 		return status.Error(codes.InvalidArgument, "spec.replicas and spec.scaling are mutually exclusive")

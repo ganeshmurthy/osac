@@ -90,10 +90,10 @@ export const ModelCreatePage = () => {
         <BreadcrumbItem>
           <Link to="/admin/maas/models">{t('Models')}</Link>
         </BreadcrumbItem>
-        <BreadcrumbItem isActive>{t('Create model')}</BreadcrumbItem>
+        <BreadcrumbItem isActive>{t('Deploy Model')}</BreadcrumbItem>
       </Breadcrumb>
       <Title headingLevel="h1" size="2xl">
-        {t('Create model deployment')}
+        {t('Deploy Model')}
       </Title>
       <form onSubmit={submit}>
         {Boolean(clustersError) && (
@@ -102,7 +102,7 @@ export const ModelCreatePage = () => {
           </Alert>
         )}
         {createModel.error && (
-          <Alert variant="danger" isInline title={t('Model could not be created')}>
+          <Alert variant="danger" isInline title={t('Model could not be deployed')}>
             {createModel.error.message}
           </Alert>
         )}
@@ -193,7 +193,7 @@ export const ModelCreatePage = () => {
             onChange={(_event, value) => setGpuLimit(value)}
           />
         </FormGroup>
-        <FormGroup label={t('Inference clusters')} isRequired fieldId="model-clusters">
+        <FormGroup label={t('Inference clusters')} fieldId="model-clusters">
           {clustersLoading ? (
             <p>{t('Loading eligible clusters…')}</p>
           ) : clusters.length ? (
@@ -209,20 +209,21 @@ export const ModelCreatePage = () => {
           ) : (
             <p>{t('No eligible AI Grid inference clusters are available.')}</p>
           )}
+          <HelperText>
+            <HelperTextItem>
+              {t(
+                'Optional. Choose clusters to deploy now, or leave this empty to add placement later.',
+              )}
+            </HelperTextItem>
+          </HelperText>
         </FormGroup>
         <Button
           type="submit"
           variant="primary"
-          isDisabled={
-            createModel.isPending ||
-            !name ||
-            !sourceUri ||
-            !servingProfile ||
-            selectedClusters.length === 0
-          }
+          isDisabled={createModel.isPending || !name || !sourceUri || !servingProfile}
           isLoading={createModel.isPending}
         >
-          {t('Create model')}
+          {t('Deploy Model')}
         </Button>{' '}
         <Button variant="link" onClick={() => navigate('/admin/maas/models')}>
           {t('Cancel')}

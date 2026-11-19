@@ -13,6 +13,39 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+type failingModelsHubClientProvider struct {
+	err error
+}
+
+func (p failingModelsHubClientProvider) GetClient(context.Context, string) (*HubClientInfo, error) {
+	return nil, p.err
+}
+
+func (failingModelsHubClientProvider) EvictClient(string) {}
+
+func TestGitModelsBackendListReturnsCatalogWhenHubIsUnreachable(t *testing.T) {
+	ctx := context.Background()
+	backend := newGitModelsBackend(gitops.NewMemoryWriter(nil), nil, slog.New(slog.DiscardHandler))
+	if _, err := backend.create(ctx, "hub-id", testBackendModel("granite-3b")); err != nil {
+		t.Fatalf("create model: %v", err)
+	}
+	backend.hubClientProvider = failingModelsHubClientProvider{err: context.DeadlineExceeded}
+
+	var listed backendModelsListResponse
+	if err := backend.call(ctx, "hub-id", "ai_grid.v1.Models/List", backendModelsListRequest{}, &listed); err != nil {
+		t.Fatalf("List returned error while hub is unreachable: %v", err)
+	}
+	if listed.Total != 1 || len(listed.Items) != 1 || listed.Items[0].ID != "granite-3b" {
+		t.Fatalf("List returned total=%d items=%#v, want Git catalog model", listed.Total, listed.Items)
+	}
+	if listed.Items[0].Status.Reason != "HubUnreachable" {
+		t.Fatalf("status reason = %q, want HubUnreachable", listed.Items[0].Status.Reason)
+	}
+	if !strings.Contains(listed.Items[0].Status.Message, "hub is unreachable") {
+		t.Fatalf("status message = %q, want unreachable explanation", listed.Items[0].Status.Message)
+	}
+}
+
 func TestGitModelsBackendCRUD(t *testing.T) {
 	ctx := context.Background()
 	writer := gitops.NewMemoryWriter(nil)

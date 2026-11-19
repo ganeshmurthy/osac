@@ -27,7 +27,12 @@ import {
   ModelSpecSchema,
 } from '@osac/types';
 
-import { useDeleteModel, useModel, useUpdateModel } from '../../api/v1/model';
+import {
+  useDeleteModel,
+  useModel,
+  useModelPlacementClusters,
+  useUpdateModel,
+} from '../../api/v1/model';
 import DeleteResourceModal from '../../components/Resource/DeleteResourceModal';
 import { useTranslation } from '../../hooks/useTranslation';
 
@@ -83,6 +88,11 @@ export const ModelDetailsPage = () => {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const { data: model, isLoading, error } = useModel(id);
+  const {
+    data: eligibleClusters = [],
+    isLoading: clustersLoading,
+    error: clustersError,
+  } = useModelPlacementClusters();
   const updateModel = useUpdateModel();
   const deleteModel = useDeleteModel();
   const [replicas, setReplicas] = useState('');
@@ -179,6 +189,9 @@ export const ModelDetailsPage = () => {
 
   const source = model.spec?.sourceUri ?? '';
   const currentClusters = model.spec?.placement?.clusters ?? [];
+  const placementClusters = [
+    ...new Set([...currentClusters, ...eligibleClusters.map((cluster) => cluster.name)]),
+  ].sort();
 
   return (
     <PageSection>
@@ -361,26 +374,44 @@ export const ModelDetailsPage = () => {
           <Title headingLevel="h2" size="xl">
             {t('Inference cluster placement')}
           </Title>
-          <p>{t('Remove deployments from clusters. At least one deployment must remain.')}</p>
-          {currentClusters.map((cluster) => (
-            <Checkbox
-              key={cluster}
-              id={`model-cluster-${cluster}`}
-              label={cluster}
-              isChecked={selectedClusters.includes(cluster)}
-              onChange={(_event, checked) =>
-                setSelectedClusters((items) =>
-                  checked ? [...items, cluster] : items.filter((item) => item !== cluster),
-                )
-              }
-            />
-          ))}
+          <p>
+            {t(
+              'Select zero or more eligible inference clusters. A model without placement stays in the catalog and is not deployed.',
+            )}
+          </p>
+          {Boolean(clustersError) && (
+            <Alert variant="warning" isInline title={t('Unable to load placement clusters')}>
+              {clustersError instanceof Error
+                ? clustersError.message
+                : t('Unable to load placement clusters')}
+            </Alert>
+          )}
+          {clustersLoading && placementClusters.length === 0 ? (
+            <p>{t('Loading eligible clusters…')}</p>
+          ) : placementClusters.length > 0 ? (
+            placementClusters.map((cluster) => (
+              <Checkbox
+                key={cluster}
+                id={`model-cluster-${cluster}`}
+                label={cluster}
+                isChecked={selectedClusters.includes(cluster)}
+                onChange={(_event, checked) =>
+                  setSelectedClusters((items) =>
+                    checked ? [...items, cluster] : items.filter((item) => item !== cluster),
+                  )
+                }
+              />
+            ))
+          ) : (
+            <p>{t('No eligible AI Grid inference clusters are available.')}</p>
+          )}
+          {selectedClusters.length === 0 && <p>{t('No deployments selected.')}</p>}
           <div>
             <Button
               variant="secondary"
               onClick={savePlacement}
               isLoading={updateModel.isPending}
-              isDisabled={updateModel.isPending || selectedClusters.length === 0}
+              isDisabled={updateModel.isPending}
             >
               {t('Save placement')}
             </Button>

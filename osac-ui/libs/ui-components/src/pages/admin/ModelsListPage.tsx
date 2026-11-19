@@ -11,7 +11,16 @@ import ListPageBody from '../../components/Page/ListPageBody';
 import { SubtleContent } from '../../components/SubtleContent/SubtleContent';
 import { useTranslation } from '../../hooks/useTranslation';
 
-const phaseLabel = (phase: ModelPhase, t: TFunction): string => {
+const phaseLabel = (phase: ModelPhase, reason: string, t: TFunction): string => {
+  if (reason === 'HubUnreachable') {
+    return t('Hub unreachable');
+  }
+  if (reason === 'StatusUnavailable') {
+    return t('Status unavailable');
+  }
+  if (reason === 'HubUnavailable') {
+    return t('Hub unavailable');
+  }
   switch (phase) {
     case ModelPhase.READY:
       return t('Ready');
@@ -34,7 +43,7 @@ export const ModelsListPage = () => {
   return (
     <ListPage
       title={t('Models')}
-      description={t('Manage local MaaS model deployments on AI Grid inference clusters.')}
+      description={t('Manage AI Grid model definitions and their inference cluster deployments.')}
       actions={
         <Button variant="primary" onClick={() => navigate('/admin/maas/models/create')}>
           {t('Deploy Model')}
@@ -44,7 +53,7 @@ export const ModelsListPage = () => {
       <ListPageBody isLoading={isLoading} error={error}>
         {!models.length ? (
           <SubtleContent component="p">
-            {t('No models yet. Create a model deployment to make it available through MaaS.')}
+            {t('No models yet. Add a model to the catalog, then choose where to deploy it.')}
           </SubtleContent>
         ) : (
           <Table aria-label={t('MaaS models')} variant="compact">
@@ -67,11 +76,17 @@ export const ModelsListPage = () => {
                   </Td>
                   <Td dataLabel={t('Status')}>
                     <Label isCompact>
-                      {phaseLabel(model.status?.phase ?? ModelPhase.UNSPECIFIED, t)}
+                      {phaseLabel(
+                        model.status?.phase ?? ModelPhase.UNSPECIFIED,
+                        model.status?.reason ?? '',
+                        t,
+                      )}
                     </Label>
                   </Td>
                   <Td dataLabel={t('Inference clusters')}>
-                    {model.spec?.placement?.clusters.join(', ') || '—'}
+                    {model.spec?.placement?.clusters.length
+                      ? model.spec.placement.clusters.join(', ')
+                      : t('Unplaced')}
                   </Td>
                   <Td dataLabel={t('Serving profile')}>{model.spec?.servingProfile || '—'}</Td>
                   <Td dataLabel={t('Model source')}>{model.spec?.sourceUri || '—'}</Td>

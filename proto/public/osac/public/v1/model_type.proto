@@ -41,9 +41,9 @@ message Model {
   ModelStatus status = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 
-// Desired settings for a model deployment. Source, serving profile, and
-// inference name are immutable. Placements may be removed only while at least
-// one deployment remains.
+// Desired settings for a model in the catalog. Source, serving profile, and
+// inference name are immutable. A model may have no placements while it remains
+// in the catalog; adding or removing placements creates or removes deployments.
 message ModelSpec {
   string source_uri = 1 [(buf.validate.field).string = {
     min_len: 1
@@ -60,7 +60,8 @@ message ModelSpec {
   optional int32 replicas = 4 [(buf.validate.field).int32 = {gte: 0, lte: 99}];
   // Per-replica CPU, memory, and accelerator requests and limits.
   ModelComputeResources compute_resources = 5;
-  // Inference clusters selected for this model.
+  // Inference clusters selected for this model. An empty list means the model
+  // remains in the catalog without any deployments.
   ModelPlacement placement = 6 [(buf.validate.field).required = true];
   // Autoscaling settings. Mutually exclusive with replicas.
   ModelScaling scaling = 7;
@@ -91,7 +92,6 @@ message ModelScalingTrigger {
 
 message ModelPlacement {
   repeated string clusters = 1 [(buf.validate.field).repeated = {
-    min_items: 1
     unique: true
     items: {string: {min_len: 1, max_len: 63}}
   }];

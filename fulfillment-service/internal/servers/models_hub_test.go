@@ -1,10 +1,47 @@
 package servers
 
 import (
+	"context"
+	"log/slog"
 	"testing"
 
+	"github.com/osac-project/osac/fulfillment-service/internal/gitops"
+	privatev1 "github.com/osac-project/osac/proto/gen/osac/private/v1"
+	publicv1 "github.com/osac-project/osac/proto/gen/osac/public/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+type modelsListWithoutHubServer struct {
+	privatev1.UnimplementedHubsServer
+}
+
+func (modelsListWithoutHubServer) List(context.Context, *privatev1.HubsListRequest) (*privatev1.HubsListResponse, error) {
+	return privatev1.HubsListResponse_builder{}.Build(), nil
+}
+
+func TestModelsListReturnsCatalogWithoutRegisteredHub(t *testing.T) {
+	ctx := context.Background()
+	backend := newGitModelsBackend(gitops.NewMemoryWriter(nil), nil, slog.New(slog.DiscardHandler))
+	if _, err := backend.create(ctx, "", testBackendModel("granite-3b")); err != nil {
+		t.Fatalf("create model: %v", err)
+	}
+	server := &ModelsServer{
+		logger:     slog.New(slog.DiscardHandler),
+		hubsServer: modelsListWithoutHubServer{},
+		backend:    backend,
+	}
+
+	response, err := server.List(ctx, publicv1.ModelsListRequest_builder{}.Build())
+	if err != nil {
+		t.Fatalf("List returned error without a registered hub: %v", err)
+	}
+	if len(response.GetItems()) != 1 || response.GetItems()[0].GetId() != "granite-3b" {
+		t.Fatalf("List returned items %#v, want Git catalog model", response.GetItems())
+	}
+	if response.GetItems()[0].GetStatus().GetReason() != "HubUnavailable" {
+		t.Fatalf("status reason = %q, want HubUnavailable", response.GetItems()[0].GetStatus().GetReason())
+	}
+}
 
 func TestIsEligibleModelPlacement(t *testing.T) {
 	tests := []struct {

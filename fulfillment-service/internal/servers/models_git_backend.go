@@ -22,11 +22,13 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"path"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/gitops"
 	"google.golang.org/grpc/codes"
@@ -38,6 +40,7 @@ import (
 
 const (
 	modelsGitRoot               = "catalog/models"
+	modelsGitCatalogIndex       = "catalog/models/index.yaml"
 	modelsGitClusters           = "catalog/clusters"
 	modelsGitSubscriptions      = "catalog/subscriptions"
 	modelsGitIngressIndex       = "catalog/ingress/kustomization.yaml"
@@ -46,6 +49,7 @@ const (
 	modelsGitLabel              = "ai-grid/model"
 	modelsGitManagedByLabel     = "app.kubernetes.io/managed-by"
 	modelsGitManagedByValue     = "ai-grid-provider-backend"
+	modelCatalogStatusTimeout   = 4 * time.Second
 )
 
 type modelsBackend interface {
@@ -151,16 +155,12 @@ func (b *gitModelsBackend) list(ctx context.Context, hubID string) ([]backendMod
 	if err != nil {
 		return nil, modelsGitError("list", "", err)
 	}
-	resources, err := readModelsKustomization(head, modelsGitIngressIndex)
+	ids, err := readModelIDs(head)
 	if err != nil {
 		return nil, err
 	}
-	items := make([]backendModel, 0, len(resources))
-	for _, resource := range resources {
-		id := path.Base(path.Dir(resource))
-		if !validModelID(id) {
-			return nil, status.Errorf(codes.Internal, "invalid model catalog resource path %q", resource)
-		}
+	items := make([]backendModel, 0, len(ids))
+	for _, id := range ids {
 		model, err := readGitBackendModel(head, id)
 		if err != nil {
 			return nil, err
@@ -170,6 +170,54 @@ func (b *gitModelsBackend) list(ctx context.Context, hubID string) ([]backendMod
 	b.applyCatalogStatus(ctx, hubID, items)
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return items, nil
+}
+
+func readModelIDs(head gitops.Snapshot) ([]string, error) {
+	data, err := head.Read(modelsGitCatalogIndex)
+	if err != nil && !errors.Is(err, gitops.ErrNotFound) {
+		return nil, modelsGitError("read", modelsGitCatalogIndex, err)
+	}
+	if err == nil {
+		var index struct {
+			Models []string `json:"models"`
+		}
+		if err := yaml.Unmarshal(data, &index); err != nil {
+			return nil, status.Errorf(codes.Internal, "parse model catalog index %q: %v", modelsGitCatalogIndex, err)
+		}
+		ids := make(map[string]struct{}, len(index.Models))
+		for _, id := range index.Models {
+			if !validModelID(id) {
+				return nil, status.Errorf(codes.Internal, "invalid model id %q in catalog index", id)
+			}
+			ids[id] = struct{}{}
+		}
+		return sortedModelIDs(ids), nil
+	}
+	// Repositories created before the model catalog had its own index listed
+	// models through the MaaS ingress index. Use it as the legacy catalog only
+	// until the dedicated catalog index is written.
+	ids := make(map[string]struct{})
+	resources, err := readModelsKustomization(head, modelsGitIngressIndex)
+	if err != nil {
+		return nil, err
+	}
+	for _, resource := range resources {
+		id := path.Base(path.Dir(resource))
+		if !validModelID(id) {
+			return nil, status.Errorf(codes.Internal, "invalid model catalog resource path %q", resource)
+		}
+		ids[id] = struct{}{}
+	}
+	return sortedModelIDs(ids), nil
+}
+
+func sortedModelIDs(ids map[string]struct{}) []string {
+	result := make([]string, 0, len(ids))
+	for id := range ids {
+		result = append(result, id)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func (b *gitModelsBackend) catalogReaderForHub(ctx context.Context, hubID string) (*CatalogStatusReader, dynamic.Interface, error) {
@@ -196,32 +244,47 @@ func (b *gitModelsBackend) catalogReaderForHub(ctx context.Context, hubID string
 }
 
 func (b *gitModelsBackend) applyCatalogStatus(ctx context.Context, hubID string, models []backendModel) {
-	if len(models) == 0 || b.hubClientProvider == nil {
+	if len(models) == 0 {
 		return
 	}
-	reader, client, err := b.catalogReaderForHub(ctx, hubID)
+	if hubID == "" {
+		setCatalogStatus(models, "HubUnavailable", "An AI Grid hub could not be resolved; deployment status is unavailable.")
+		return
+	}
+	if b.hubClientProvider == nil {
+		setCatalogStatusUnavailable(models, status.Error(codes.Unavailable, "AI Grid Hub status client is not configured"))
+		return
+	}
+	statusCtx, cancel := context.WithTimeout(ctx, modelCatalogStatusTimeout)
+	defer cancel()
+	reader, client, err := b.catalogReaderForHub(statusCtx, hubID)
 	if err != nil {
 		b.logger.WarnContext(ctx, "cannot read AI Grid model rollout status", "hub", hubID, "error", err)
+		setCatalogStatusUnavailable(models, err)
 		return
 	}
-	inference, err := reader.Read(ctx, ModelsSet, kindLLMInferenceService)
+	inference, err := reader.Read(statusCtx, ModelsSet, kindLLMInferenceService)
 	if err != nil {
 		b.logger.WarnContext(ctx, "cannot read AI Grid inference rollout status", "hub", hubID, "error", err)
+		setCatalogStatusUnavailable(models, err)
 		return
 	}
-	refs, err := reader.Read(ctx, IngressSet, kindMaaSModelRef)
+	refs, err := reader.Read(statusCtx, IngressSet, kindMaaSModelRef)
 	if err != nil {
 		b.logger.WarnContext(ctx, "cannot read AI Grid model publication status", "hub", hubID, "error", err)
+		setCatalogStatusUnavailable(models, err)
 		return
 	}
-	externals, err := reader.Read(ctx, IngressSet, kindExternalModel)
+	externals, err := reader.Read(statusCtx, IngressSet, kindExternalModel)
 	if err != nil {
 		b.logger.WarnContext(ctx, "cannot read AI Grid model gateway status", "hub", hubID, "error", err)
+		setCatalogStatusUnavailable(models, err)
 		return
 	}
-	managedClusters, err := client.Resource(aiGridManagedClustersResource).List(ctx, metav1.ListOptions{})
+	managedClusters, err := client.Resource(aiGridManagedClustersResource).List(statusCtx, metav1.ListOptions{})
 	if err != nil {
 		b.logger.WarnContext(ctx, "cannot list AI Grid ingress clusters", "hub", hubID, "error", err)
+		setCatalogStatusUnavailable(models, err)
 		return
 	}
 	ingressClusters := make([]string, 0)
@@ -238,6 +301,23 @@ func (b *gitModelsBackend) applyCatalogStatus(ctx context.Context, hubID string,
 	}
 }
 
+func setCatalogStatusUnavailable(models []backendModel, err error) {
+	reason := "StatusUnavailable"
+	message := "Deployment status could not be read from the AI Grid hub."
+	var networkError net.Error
+	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &networkError) {
+		reason = "HubUnreachable"
+		message = "The AI Grid hub is unreachable; deployment status is unavailable."
+	}
+	setCatalogStatus(models, reason, message)
+}
+
+func setCatalogStatus(models []backendModel, reason, message string) {
+	for i := range models {
+		models[i].Status = backendModelStatus{Phase: "MODEL_PHASE_PENDING", Reason: reason, Message: message}
+	}
+}
+
 func applyBackendModelStatus(model *backendModel, inference, refs, externals ObjectReports, ingressClusters []string) {
 	if model == nil {
 		return
@@ -245,6 +325,13 @@ func applyBackendModelStatus(model *backendModel, inference, refs, externals Obj
 	id := model.ID
 	statusValue := backendModelStatus{Phase: "MODEL_PHASE_PENDING", Reason: "NotReady"}
 	placed := backendModelSelectedClusters(*model)
+	if len(placed) == 0 {
+		model.Status = backendModelStatus{
+			Phase: "MODEL_PHASE_PENDING", Reason: "Unplaced",
+			Message: "No inference clusters selected; the model is in the catalog without deployments.",
+		}
+		return
+	}
 	deploymentReady, deploymentFailed := 0, false
 	var messages []string
 	for _, cluster := range placed {
@@ -328,9 +415,6 @@ func (b *gitModelsBackend) create(ctx context.Context, hubID string, model backe
 		return backendModel{}, status.Errorf(codes.InvalidArgument, "invalid model id %q", id)
 	}
 	clusters := backendModelSelectedClusters(model)
-	if len(clusters) == 0 {
-		return backendModel{}, status.Error(codes.InvalidArgument, "model placement must contain at least one cluster")
-	}
 	var created backendModel
 	err := gitops.RetryOnConflict(ctx, func() error {
 		head, err := b.writer.Head(ctx)
@@ -400,14 +484,6 @@ func (b *gitModelsBackend) update(ctx context.Context, request backendModelsUpda
 		}
 		clusters := backendModelSelectedClusters(request.Object)
 		oldClusters := backendModelSelectedClusters(current)
-		if len(clusters) == 0 {
-			return status.Error(codes.FailedPrecondition, "at least one model deployment must remain; delete the model to remove every deployment")
-		}
-		for _, cluster := range clusters {
-			if !slices.Contains(oldClusters, cluster) {
-				return status.Errorf(codes.FailedPrecondition, "adding placement cluster %q after model creation is not supported", cluster)
-			}
-		}
 		model := request.Object
 		model.Metadata.Version = current.Metadata.Version + 1
 		model.Status = current.Status
@@ -443,6 +519,9 @@ func (b *gitModelsBackend) delete(ctx context.Context, request backendModelsDele
 			Message: "models: delete " + request.ID,
 		}
 		if err := putModelsIndexEntry(head, &change, modelIngressResource(request.ID), modelsGitIngressIndex, false); err != nil {
+			return err
+		}
+		if err := putModelCatalogIndexEntry(head, &change, request.ID, false); err != nil {
 			return err
 		}
 		for _, cluster := range backendModelSelectedClusters(current) {
@@ -511,6 +590,18 @@ func (b *gitModelsBackend) commitModel(ctx context.Context, head gitops.Snapshot
 	if from == nil {
 		from = []string{}
 	}
+	if err := putModelCatalogIndexEntry(head, &change, id, true); err != nil {
+		return err
+	}
+	if len(from) == 0 && len(to) > 0 {
+		if err := putModelsIndexEntry(head, &change, modelIngressResource(id), modelsGitIngressIndex, true); err != nil {
+			return err
+		}
+	} else if len(from) > 0 && len(to) == 0 {
+		if err := putModelsIndexEntry(head, &change, modelIngressResource(id), modelsGitIngressIndex, false); err != nil {
+			return err
+		}
+	}
 	for _, cluster := range from {
 		if !slices.Contains(to, cluster) {
 			if err := putModelsIndexEntry(head, &change, modelClusterResource(id), modelClusterIndex(cluster), false); err != nil {
@@ -522,9 +613,6 @@ func (b *gitModelsBackend) commitModel(ctx context.Context, head gitops.Snapshot
 		if err := putModelsIndexEntry(head, &change, modelClusterResource(id), modelClusterIndex(cluster), true); err != nil {
 			return err
 		}
-	}
-	if err := putModelsIndexEntry(head, &change, modelIngressResource(id), modelsGitIngressIndex, true); err != nil {
-		return err
 	}
 	if _, err := b.writer.Commit(ctx, head.Revision(), change); err != nil {
 		return modelsGitError(operation, id, err)
@@ -561,9 +649,6 @@ func readGitBackendModel(head gitops.Snapshot, id string) (backendModel, error) 
 	model.Metadata.Version = int32(version)
 	clusters := strings.Split(annotations[modelsGitClustersAnnotation], ",")
 	clusters = slices.DeleteFunc(clusters, func(cluster string) bool { return cluster == "" })
-	if len(clusters) == 0 {
-		return backendModel{}, status.Errorf(codes.Internal, "model %q has no placement clusters in its catalog entry", id)
-	}
 	model.Spec.Placement = backendModelPlacement{LabelSelector: &backendModelLabelSelector{MatchExpressions: []backendModelSelectorRequirement{{Key: "name", Operator: "In", Values: clusters}}}}
 	if modelSpec, ok := spec["model"].(map[string]any); ok {
 		model.Spec.Model = backendModelSource{URI: anyString(modelSpec["uri"]), Name: anyString(modelSpec["name"])}
@@ -614,6 +699,72 @@ func putModelsIndexEntry(head gitops.Snapshot, change *gitops.Change, resource, 
 	}
 	change.Put[index] = renderModelsKustomization(resources)
 	return nil
+}
+
+func putModelCatalogIndexEntry(head gitops.Snapshot, change *gitops.Change, id string, present bool) error {
+	models, err := readModelCatalogIndex(head)
+	if err != nil {
+		return err
+	}
+	if _, err := head.Read(modelsGitCatalogIndex); errors.Is(err, gitops.ErrNotFound) {
+		// The first dedicated index is migrated from ingress. Guard that source
+		// against concurrent edits so an old model cannot be omitted.
+		change.Read = append(change.Read, modelsGitIngressIndex)
+	} else if err != nil {
+		return modelsGitError("read", modelsGitCatalogIndex, err)
+	}
+	if slices.Contains(models, id) == present {
+		change.Read = append(change.Read, modelsGitCatalogIndex)
+		return nil
+	}
+	if present {
+		models = append(models, id)
+		sort.Strings(models)
+	} else {
+		models = slices.DeleteFunc(models, func(value string) bool { return value == id })
+	}
+	data, err := yaml.Marshal(map[string]any{"models": models})
+	if err != nil {
+		return status.Errorf(codes.Internal, "render model catalog index: %v", err)
+	}
+	change.Put[modelsGitCatalogIndex] = data
+	return nil
+}
+
+func readModelCatalogIndex(head gitops.Snapshot) ([]string, error) {
+	data, err := head.Read(modelsGitCatalogIndex)
+	if errors.Is(err, gitops.ErrNotFound) {
+		resources, err := readModelsKustomization(head, modelsGitIngressIndex)
+		if err != nil {
+			return nil, err
+		}
+		ids := make(map[string]struct{}, len(resources))
+		for _, resource := range resources {
+			id := path.Base(path.Dir(resource))
+			if !validModelID(id) {
+				return nil, status.Errorf(codes.Internal, "invalid model catalog resource path %q", resource)
+			}
+			ids[id] = struct{}{}
+		}
+		return sortedModelIDs(ids), nil
+	}
+	if err != nil {
+		return nil, modelsGitError("read", modelsGitCatalogIndex, err)
+	}
+	var index struct {
+		Models []string `json:"models"`
+	}
+	if err := yaml.Unmarshal(data, &index); err != nil {
+		return nil, status.Errorf(codes.Internal, "parse model catalog index %q: %v", modelsGitCatalogIndex, err)
+	}
+	ids := make(map[string]struct{}, len(index.Models))
+	for _, id := range index.Models {
+		if !validModelID(id) {
+			return nil, status.Errorf(codes.Internal, "invalid model id %q in catalog index", id)
+		}
+		ids[id] = struct{}{}
+	}
+	return sortedModelIDs(ids), nil
 }
 
 func renderModelsKustomization(resources []string) []byte {

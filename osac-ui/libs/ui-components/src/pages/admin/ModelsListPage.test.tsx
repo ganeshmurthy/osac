@@ -56,12 +56,29 @@ describe('ModelsListPage', () => {
     expect(screen.getByText('hf://ibm-granite/granite-3b')).toBeInTheDocument();
   });
 
+  it('shows when the hub is unreachable while keeping the model visible', async () => {
+    const unreachableModel = create(ModelSchema, {
+      id: model.id,
+      metadata: model.metadata,
+      spec: model.spec,
+      status: {
+        phase: ModelPhase.PENDING,
+        reason: 'HubUnreachable',
+        message: 'The AI Grid hub is unreachable; deployment status is unavailable.',
+      },
+    });
+    renderPage(() => ({ size: 1, total: 1, items: [unreachableModel] }));
+
+    expect(await screen.findByRole('link', { name: 'Granite 3B' })).toBeInTheDocument();
+    expect(screen.getByText('Hub unreachable')).toBeInTheDocument();
+  });
+
   it('shows an empty state when no models are registered', async () => {
     renderPage(() => ({ size: 0, total: 0, items: [] }));
 
     expect(
       await screen.findByText(
-        'No models yet. Create a model deployment to make it available through MaaS.',
+        'No models yet. Add a model to the catalog, then choose where to deploy it.',
       ),
     ).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
