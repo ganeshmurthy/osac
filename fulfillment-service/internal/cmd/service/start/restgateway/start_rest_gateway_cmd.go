@@ -330,6 +330,7 @@ func buildHandlerList() []handlerRegistrar {
 		publicv1.RegisterVolumesHandler,
 		publicv1.RegisterSelfSubjectAccessReviewsHandler,
 		publicv1.RegisterWorkloadClustersHandler,
+		publicv1.RegisterModelsHandler,
 		// Shared private API:
 		privatev1.RegisterCapabilitiesHandler,
 		privatev1.RegisterBillingProviderStatusesHandler,
@@ -353,6 +354,7 @@ func buildHandlerList() []handlerRegistrar {
 		privatev1.RegisterVolumesHandler,
 		privatev1.RegisterSelfSubjectAccessReviewsHandler,
 		privatev1.RegisterWorkloadClustersHandler,
+		privatev1.RegisterModelsHandler,
 		// CaaS:
 		publicv1.RegisterClusterTemplatesHandler,
 		publicv1.RegisterAddOnOperatorsHandler,
