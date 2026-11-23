@@ -440,6 +440,7 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 			return nil, fmt.Errorf("failed to create models server: %w", err)
 		}
 		publicv1.RegisterModelsServer(registrar, modelsServer)
+
 	}
 
 	hubSecretFetcher, err := servers.NewHubSecretFetcher().
@@ -988,6 +989,19 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 		return nil, fmt.Errorf("failed to create private tenants server: %w", err)
 	}
 	privatev1.RegisterTenantsServer(registrar, privateTenantsServer)
+	if deps.Services.MaaS {
+		deps.Logger.InfoContext(ctx, "Creating subscriptions server")
+		subscriptionsServer, err := servers.NewSubscriptionsServer().
+			SetLogger(deps.Logger).
+			SetHubsServer(privateHubsServer).
+			SetTenantsServer(privateTenantsServer).
+			SetHubClientProvider(hubClientProvider).
+			Build()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create subscriptions server: %w", err)
+		}
+		publicv1.RegisterSubscriptionsServer(registrar, subscriptionsServer)
+	}
 
 	// Create the public identity providers server:
 	deps.Logger.InfoContext(ctx, "Creating public identity providers server")
